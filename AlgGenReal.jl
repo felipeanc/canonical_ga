@@ -14,7 +14,7 @@ mutable struct Individual
 
   function Individual(gen_num::Union{Int32,Int64}, fit=-Inf)
     ##Vector with gen_num elements in range [-gen_num, gen_num]
-    c::Chromosome = sort!(rand(Uniform(-gen_num, gen_num), gen_num))
+    c::Chromosome = sort(rand(Uniform(-gen_num, gen_num), gen_num), rev = true)
     new(c, fit)
   end
 
@@ -86,7 +86,7 @@ function roulette_selection(pop::Population)
   function select()::Int
     prob = rand() * total_fitness
     psum = 0.0
-    for i = 1:pop.size
+    for i = pop.size:-1:1
       psum += individuals[i].fitness
       if prob <= psum
         return i
@@ -101,7 +101,8 @@ end
 function tournament_selection(pop::Population, k::Int = 3)
   individuals::Individuals = pop.individuals
   scores = [i for i = 1:pop.size]
-
+  # println("Pop: ")
+  # print_pop(pop)
   function select()::Int
     tournament = sample(scores, k; replace = false)
     i = maximum(tournament)
@@ -113,8 +114,8 @@ end
 
 const Coin() = rand() < 0.5
 
-##Uniform crossing
-function uniform_crossing(cs::Chromosomes, ga::GA)
+##Uniform crossover
+function uniform_crossover(cs::Chromosomes, ga::GA)
   for i = 1:2:ga.pop_size
     if rand() < ga.cross_prob
       p1 = cs[i] #Heads
@@ -128,7 +129,7 @@ function uniform_crossing(cs::Chromosomes, ga::GA)
   end
 end
 
-function singlepoint_crossing(cs::Chromosomes, ga::GA, crosspoint=-Inf)
+function singlepoint_crossover(cs::Chromosomes, ga::GA, crosspoint=-Inf)
   if crosspoint == -Inf
     crosspoint = rand(1:ga.dimension-1)
   end
@@ -146,12 +147,12 @@ function singlepoint_crossing(cs::Chromosomes, ga::GA, crosspoint=-Inf)
 end
 
 
-function twopoint_crossing(cs::Chromosomes, ga::GA, l = -Inf, r = -Inf)
+function twopoint_crossover(cs::Chromosomes, ga::GA, l = -Inf, r = -Inf)
   if l == -Inf
-    l = rand(1:length(cs1)-1)
+    l = rand(1:length(cs[1])-1)
   end
   if r == -Inf
-    r = rand(r:length(cs1)-1)
+    r = rand(l:length(cs[1])-1)
   end
 
   for i = 1:2:ga.pop_size
@@ -163,15 +164,15 @@ function twopoint_crossing(cs::Chromosomes, ga::GA, l = -Inf, r = -Inf)
   end
 end
 
-function npoint_crossing(cs::Chromosomes, ga::GA, n_points = 2)
+function npoint_crossover(cs::Chromosomes, ga::GA, n_points = 2)
 
-  function singlepoint_crossing(cs1::Chromosome, cs2::Chromosome)
+  function singlepoint_crossover(cs1::Chromosome, cs2::Chromosome)
     crosspoint = rand(1:length(cs1)-1)
     cs1 = [cs1[1:crosspoint];cs2[crosspoint+1:length(cs2)]]
     cs2 = [cs2[1:crosspoint];cs1[crosspoint+1:length(cs1)]]
   end
 
-  function twopoint_crossing(cs1::Chromosome, cs2::Chromosome)
+  function twopoint_crossover(cs1::Chromosome, cs2::Chromosome)
     l = rand(1:length(cs1)-1)
     r = rand(l:length(cs1)-1)
     cs1[l:r], cs2[l:r] = cs2[l:r], cs1[l:r]
@@ -182,10 +183,10 @@ function npoint_crossing(cs::Chromosomes, ga::GA, n_points = 2)
       p1 = cs[i]
       p2 = cs[i+1]
       if n_points == 1
-        singlepoint_crossing(p1, p2)
+        singlepoint_crossover(p1, p2)
       end
       if n_points == 2
-        twopoint_crossing(p1, p2)
+        twopoint_crossover(p1, p2)
       end
 
       if n_points > 2
@@ -246,6 +247,22 @@ function whole_arithmetic_crossover(cs::Chromosomes, ga::GA, alpha = 0.5)
   end
 end
 
+function mutation(cs::Chromosomes, ga::GA)
+	for i=1:ga.pop_size, j=1:ga.dimension
+        if rand() < ga.mut_prob
+            cs[i][j] = -cs[i][j]
+        end
+    end
+end
+
+function uniform_mutation(cs::Chromosomes, ga::GA)
+  for i=1:ga.pop_size, j=1:ga.dimension
+    if rand() < ga.mut_prob
+      cs[i][j] = rand(Uniform(-ga.dimension, ga.dimension))
+    end
+  end 
+end
+
 function stats(pop::Population)
   stats = zeros(Float64, 3)
 
@@ -260,30 +277,41 @@ function stats(pop::Population)
   return stats
 end
 
+function print_pop(pop::Population)
+  println()
+  for ind in pop.individuals
+    println(ind)
+  end
+end
+
 function exec(ga::GA)::Population
   pop = Population(ga.pop_size, ga.dimension)
   evaluate(pop)
   s = stats(pop)
   println("Gen.: 0 → best: ", s[1], ", worst: ", s[2], ", avg.: ", s[3])
   for g = 1:ga.generation_limit
-    s = stats(pop)
     if g % 100 == 0
       println("Gen.: $g → best: ", s[1], ", worst: ", s[2], ", avg.: ", s[3])
+      
     end
-    selected = tournament_selection(pop)
-    arithmetic_crossover(selected, ga, 3)
-    #mutation
+    selected = roulette_selection(pop)
+    uniform_crossover(selected, ga)
+    uniform_mutation(selected, ga)
     pop = Population([Individual(i) for i in selected])
     evaluate(pop)
+    s = stats(pop)
+    println("Gen.: $g → best: ", s[1], ", worst: ", s[2], ", avg.: ", s[3])
   end
   pop
 end
 
+const revFit(x) = (1-x)/x
+
 function main()
-  dimension::Int32 = 8
+  dimension::Int32 = 2
   pop_size::Int32 = 20
   cross_prob::Float64 = 0.9
-  mut_prob::Float64 = 0.02
+  mut_prob::Float64 = 0.08
   gen_limit::Int32 = 1000
   iterations::Int32 = 30
   ga = GA(pop_size, dimension, cross_prob, mut_prob, gen_limit)
@@ -295,7 +323,11 @@ function main()
     individuals = sort(pop.individuals, rev=true)
     best[i] = individuals[1]
   end
-  println("Best: ", best[1], "\nworst: ", best[iterations])
+  best = sort(best, rev=true)
+  expected = [1/i for i = 1:dimension]
+  println("Optimum: 0, $expected", 
+          "\nBest: ", revFit(best[1].fitness), ", ", best[1].chromosome, 
+          "\nWorst: ", revFit(best[iterations].fitness), ", ", best[iterations].chromosome)
 end
 
 main()
